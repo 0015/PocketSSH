@@ -1,0 +1,10 @@
+## IDF Component Manager Manifest File
+dependencies:
+  ## Required IDF version
+  idf:
+    version: '>=5.3.0'
+  espressif/esp_bsp_generic: ^3.0.2
+  espressif/esp_lcd_touch_gt911: ^1.2.0~1
+  lvgl/lvgl: ^9.4.0
+  skuodi/libssh2_esp: '*'
+  
