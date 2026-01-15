@@ -47,6 +47,7 @@ SSHTerminal::SSHTerminal()
       status_bar(NULL),
       byte_counter_label(NULL),
       side_panel(NULL),
+      cursor_pos(0),
       bytes_received(0),
       history_index(-1),
       cursor_blink_timer(NULL),
@@ -64,6 +65,8 @@ SSHTerminal::SSHTerminal()
       hostname(NULL),
       port_number(22)
 {
+    vTaskDelay(pdMS_TO_TICKS(100));
+    
     ESP_LOGI(TAG, "Initializing battery measurement...");
     esp_err_t battery_ret = battery.init();
     if (battery_ret == ESP_OK) {
@@ -312,6 +315,10 @@ lv_obj_t* SSHTerminal::create_terminal_screen()
     lv_obj_set_style_text_font(input_label, &lv_font_montserrat_12, 0);
     lv_label_set_long_mode(input_label, LV_LABEL_LONG_CLIP);
     lv_obj_align(input_label, LV_ALIGN_LEFT_MID, 0, 0);
+    
+    // Enable touch events on input label
+    lv_obj_add_flag(input_label, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(input_label, input_touch_event_cb, LV_EVENT_CLICKED, this);
 
     create_side_panel();
     
@@ -483,14 +490,19 @@ void SSHTerminal::handle_key_input(char key)
             command_history.push_back(current_input);
             history_needs_save = true;
             current_input.clear();
+            cursor_pos = 0;
             history_index = -1;
         }
     } else if (key == 8 || key == 127) {
-        if (!current_input.empty()) {
-            current_input.pop_back();
+        // Backspace - delete character before cursor
+        if (cursor_pos > 0 && !current_input.empty()) {
+            current_input.erase(cursor_pos - 1, 1);
+            cursor_pos--;
         }
     } else if (key >= 32 && key <= 126) {
-        current_input += key;
+        // Insert character at cursor position
+        current_input.insert(cursor_pos, 1, key);
+        cursor_pos++;
     }
     
     update_input_display();
@@ -502,9 +514,17 @@ void SSHTerminal::update_input_display()
         return;
     }
     
+    // Ensure cursor_pos is within bounds
+    if (cursor_pos > current_input.length()) {
+        cursor_pos = current_input.length();
+    }
+    
     std::string full_text = "> " + current_input;
+    
+    // Insert cursor at correct position
     if (cursor_visible) {
-        full_text += "|";
+        size_t display_pos = 2 + cursor_pos; // 2 = length of "> "
+        full_text.insert(display_pos, "|");
     }
     
     lv_label_set_text(input_label, full_text.c_str());
@@ -513,6 +533,68 @@ void SSHTerminal::update_input_display()
     if (container) {
         lv_obj_scroll_to_x(container, LV_COORD_MAX, LV_ANIM_OFF);
     }
+}
+
+void SSHTerminal::input_touch_event_cb(lv_event_t* e)
+{
+    SSHTerminal* terminal = (SSHTerminal*)lv_event_get_user_data(e);
+    lv_obj_t* input_label = (lv_obj_t* )lv_event_get_target(e);
+    
+    if (!terminal || !input_label) {
+        return;
+    }
+    
+    // Get the touch point relative to the label
+    lv_point_t point;
+    lv_indev_get_point(lv_indev_get_act(), &point);
+    
+    // Convert to label coordinates
+    lv_obj_t* label = input_label;
+    lv_area_t label_coords;
+    lv_obj_get_coords(label, &label_coords);
+    
+    int32_t click_x = point.x - label_coords.x1;
+    
+    // Get font and calculate character position
+    const lv_font_t* font = lv_obj_get_style_text_font(label, LV_PART_MAIN);
+    
+    // Account for "> " prefix (2 characters)
+    const char* prefix = "> ";
+    lv_point_t prefix_size;
+    lv_txt_get_size(&prefix_size, prefix, font, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+    int32_t prefix_width = prefix_size.x;
+    
+    if (click_x <= prefix_width) {
+        // Clicked on prefix, set cursor to start
+        terminal->cursor_pos = 0;
+    } else {
+        // Calculate which character was clicked
+        int32_t text_x = click_x - prefix_width;
+        size_t best_pos = 0;
+        int32_t min_distance = INT32_MAX;
+        
+        // Check each character position
+        for (size_t i = 0; i <= terminal->current_input.length(); i++) {
+            std::string substr = terminal->current_input.substr(0, i);
+            lv_point_t substr_size;
+            lv_txt_get_size(&substr_size, substr.c_str(), font, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+            int32_t char_x = substr_size.x;
+            int32_t distance = abs(text_x - char_x);
+            
+            if (distance < min_distance) {
+                min_distance = distance;
+                best_pos = i;
+            }
+        }
+        
+        terminal->cursor_pos = best_pos;
+    }
+    
+    // Reset cursor blink to make it visible
+    terminal->cursor_visible = true;
+    terminal->update_input_display();
+    
+    ESP_LOGI(TAG, "Cursor moved to position: %d", terminal->cursor_pos);
 }
 
 void SSHTerminal::cursor_blink_cb(lv_timer_t* timer)
@@ -565,10 +647,41 @@ void SSHTerminal::navigate_history(int direction)
         }
     }
     
-    std::string display_text = "> " + current_input;
-    if (input_label) {
-        lv_label_set_text(input_label, display_text.c_str());
+    // Move cursor to end of input
+    cursor_pos = current_input.length();
+    update_input_display();
+}
+
+void SSHTerminal::move_cursor_left()
+{
+    if (cursor_pos > 0) {
+        cursor_pos--;
+        cursor_visible = true;
+        update_input_display();
     }
+}
+
+void SSHTerminal::move_cursor_right()
+{
+    if (cursor_pos < current_input.length()) {
+        cursor_pos++;
+        cursor_visible = true;
+        update_input_display();
+    }
+}
+
+void SSHTerminal::move_cursor_home()
+{
+    cursor_pos = 0;
+    cursor_visible = true;
+    update_input_display();
+}
+
+void SSHTerminal::move_cursor_end()
+{
+    cursor_pos = current_input.length();
+    cursor_visible = true;
+    update_input_display();
 }
 
 void SSHTerminal::delete_current_history_entry()
@@ -1262,15 +1375,19 @@ void SSHTerminal::create_side_panel()
         
         return btn;
     };
-    
-    create_key_button("Ctrl+C", "\x03", 35);
-    create_key_button("Ctrl+Z", "\x1A", 70);
-    create_key_button("Ctrl+D", "\x04", 105);
-    create_key_button("Ctrl+L", "\x0C", 140);
-    create_key_button("Tab", "\t", 175);
-    create_key_button("Esc", "\x1B", 210);
-    create_key_button("Exit SSH", "EXIT", 245);
-    create_key_button("Clear", "CLEAR", 280);
+
+    create_key_button("<-", "LEFT", 35);
+    create_key_button("->", "RIGHT", 70);
+    create_key_button("Line <", "HOME", 105);
+    create_key_button("> Line", "END", 140);
+    create_key_button("Ctrl+C", "\x03", 175);
+    create_key_button("Ctrl+Z", "\x1A", 210);
+    create_key_button("Ctrl+D", "\x04", 245);
+    create_key_button("Ctrl+L", "\x0C", 280);
+    create_key_button("Tab", "\t", 315);
+    create_key_button("Esc", "\x1B", 350);
+    create_key_button("Exit SSH", "EXIT", 385);
+    create_key_button("Clear", "CLEAR", 420);
 }
 
 void SSHTerminal::toggle_side_panel()
@@ -1302,6 +1419,27 @@ void SSHTerminal::send_special_key(const char* sequence)
     if (strcmp(sequence, "CLEAR") == 0) {
         clear_terminal();
         toggle_side_panel();
+        return;
+    }
+    
+    // Handle cursor movement keys
+    if (strcmp(sequence, "LEFT") == 0) {
+        move_cursor_left();
+        return;
+    }
+    
+    if (strcmp(sequence, "RIGHT") == 0) {
+        move_cursor_right();
+        return;
+    }
+    
+    if (strcmp(sequence, "HOME") == 0) {
+        move_cursor_home();
+        return;
+    }
+    
+    if (strcmp(sequence, "END") == 0) {
+        move_cursor_end();
         return;
     }
     

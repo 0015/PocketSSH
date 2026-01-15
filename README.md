@@ -24,6 +24,25 @@ A portable SSH terminal client for the ESP32-S3 T-Deck Plus, featuring a hardwar
 
 ![PocketSSH Screenshot](misc/screenshot_01.jpeg)
 
+## Version History
+
+### v1.1.0 (January 14, 2026)
+- **Fixed**: Boot loop issue on quick power cycles caused by GPIO4 (strapping pin) ADC initialization
+  - Added 100ms delay before ADC initialization to allow GPIO4 to settle after boot
+  - Prevents residual voltage from interfering with boot strapping sequence
+  - Device now boots reliably regardless of power cycle timing
+- **Added**: Touch-to-position cursor functionality
+  - Tap anywhere on input text to move cursor to that position
+  - Improves text editing experience with precise cursor control
+- **Improved**: System stability on rapid power on/off cycles
+
+### v1.0.0 (Initial Release)
+- Full SSH2 terminal with PTY support
+- Hardware keyboard and trackball navigation
+- Touch gesture controls
+- Battery voltage monitoring
+- Command history with NVS storage
+
 ## Key Features
 
 ### SSH Terminal
@@ -309,7 +328,7 @@ Disconnected from SSH server
 ### Release Firmware Image
 
 A ready-to-deploy **merged binary** is available that includes bootloader, partition table, and application:
-- **File**: `build/PocketSSH-v1.0.0-release.bin`
+- **File**: `build/PocketSSH-v1.1.0-release.bin`
 - **Flash Address**: `0x0` (single merged binary)
 - **Flash Settings**: 
   - **Mode**: DIO (Dual I/O)
@@ -322,13 +341,13 @@ Flash firmware via browser using ESP Web Flasher:
 1. Visit: https://espressif.github.io/esptool-js/
 2. Connect ESP32-S3 device via USB
 3. Click "Connect" and select serial port
-4. Add file: `PocketSSH-v1.0.0-release.bin` at offset `0x0`
+4. Add file: `PocketSSH-v1.1.0-release.bin` at offset `0x0`
 5. Click "Program" to flash
 
 ### Command Line Installation
 
 ```bash
-esptool.py --chip esp32s3 --baud 921600 write_flash 0x0 build/PocketSSH-v1.0.0-release.bin
+esptool.py --chip esp32s3 --baud 921600 write_flash 0x0 build/PocketSSH-v1.1.0-release.bin
 ```
 
 ## Credits

@@ -37,6 +37,10 @@ public:
     void navigate_history(int direction);
     void delete_current_history_entry();
     void send_current_history_command();
+    void move_cursor_left();
+    void move_cursor_right();
+    void move_cursor_home();
+    void move_cursor_end();
     
     esp_err_t init_wifi(const char* ssid, const char* password);
     bool is_wifi_connected();
@@ -54,6 +58,7 @@ private:
     lv_obj_t* side_panel;
     
     std::string current_input;
+    size_t cursor_pos;
     size_t bytes_received;
     std::vector<std::string> command_history;
     int history_index;
@@ -96,6 +101,7 @@ private:
     void toggle_side_panel();
     static void gesture_event_cb(lv_event_t* e);
     static void special_key_event_cb(lv_event_t* e);
+    static void input_touch_event_cb(lv_event_t* e);
     static void cursor_blink_cb(lv_timer_t* timer);
     static void battery_update_cb(lv_timer_t* timer);
     static void history_save_cb(lv_timer_t* timer);
