@@ -4,6 +4,14 @@ set(SOURCES
     "battery_measurement.cpp"
     "c3_keyboard.cpp"
     "ssh_terminal.cpp"
+    "lvgl_pepboy_img/pepboy_0.c"
+    "lvgl_pepboy_img/pepboy_1.c"
+    "lvgl_pepboy_img/pepboy_2.c"
+    "lvgl_pepboy_img/pepboy_3.c"
+    "lvgl_pepboy_img/pepboy_4.c"
+    "lvgl_pepboy_img/pepboy_5.c"
+    "lvgl_pepboy_img/pepboy_6.c"
+    "lvgl_pepboy_img/pepboy_7.c"
 )
 
 # List of include directories

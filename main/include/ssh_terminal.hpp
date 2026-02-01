@@ -11,6 +11,7 @@
 #include "esp_err.h"
 #include <string>
 #include <vector>
+#include <map>
 #include "libssh2.h"
 #include "battery_measurement.hpp"
 
@@ -27,6 +28,7 @@ public:
     lv_obj_t* create_terminal_screen();
     
     esp_err_t connect(const char* host, int port, const char* username, const char* password);
+    esp_err_t connect_with_key(const char* host, int port, const char* username, const char* privkey_data, size_t privkey_len);
     esp_err_t disconnect();
     bool is_connected();
     
@@ -48,6 +50,11 @@ public:
     lv_obj_t* get_screen() { return terminal_screen; }
     
     void update_status_bar();
+    
+    // SSH key management
+    void load_key_from_memory(const char* keyname, const char* key_data, size_t key_len);
+    const char* get_loaded_key(const char* keyname, size_t* len);
+    std::vector<std::string> get_loaded_key_names();
     
 private:
     lv_obj_t* terminal_screen;
@@ -87,6 +94,9 @@ private:
     char* hostname;
     int port_number;
     
+    // SSH key storage: keyname -> key content
+    std::map<std::string, std::string> loaded_keys;
+    
     void update_terminal_display();
     void update_input_display();
     void process_received_data(const char* data, size_t len);
@@ -109,6 +119,7 @@ private:
     
     static int waitsocket(int socket_fd, LIBSSH2_SESSION *session);
     esp_err_t ssh_authenticate(const char* username, const char* password);
+    esp_err_t ssh_authenticate_pubkey(const char* username, const char* privkey_data, size_t privkey_len);
     esp_err_t ssh_open_channel();
 };
 

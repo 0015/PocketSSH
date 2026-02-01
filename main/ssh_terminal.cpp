@@ -333,18 +333,19 @@ lv_obj_t* SSHTerminal::create_terminal_screen()
 
     const char* logo = 
         "\n"
-        "        ==================================\n"
-        "        Portable SSH Terminal for ESP32-S3\n"
-        "        ==================================\n"
+        "  ================================================\n"
+        "           POCKET SSH TERM - ESP32-S3\n"
+        "  ================================================\n"
         "\n"
-        "Commands:\n"
-        "  connect <SSID> <PASSWORD>  - Connect to WiFi\n"
-        "  ssh <HOST> <PORT> <USER> <PASS> - Connect via SSH\n"
-        "  disconnect - Close WiFi connection\n"
-        "  exit - Close SSH connection\n"
-        "  clear - Clear terminal\n"
+        "  Commands:\n"
+        "   connect <SSID> <PASSWORD>  - WiFi connect\n"
+        "     Use quotes for spaces: connect \"My WiFi\" \"my pass\"\n"
+        "   ssh <HOST> <PORT> <USER> <PASS> - SSH\n"
+        "   sshkey <HOST> <PORT> <USER> <KEYFILE> - SSH key\n"
+        "   disconnect - WiFi off | exit - SSH off\n"
+        "   clear - Clear screen | help - Show help\n"
         "\n"
-        "Ready. Type 'connect' to start...\n\n";
+        "  Ready. Type 'connect' to start...\n\n";
     
     lv_textarea_set_text(terminal_output, logo);
 
@@ -363,7 +364,7 @@ void SSHTerminal::append_text(const char* text)
     size_t current_len = current_text ? strlen(current_text) : 0;
     size_t new_len = strlen(text);
     
-    const size_t MAX_BUFFER_SIZE = 2048;
+    const size_t MAX_BUFFER_SIZE = 4096;
     
     if (current_len > MAX_BUFFER_SIZE * 0.8) {
         lv_textarea_set_text(terminal_output, "...[cleared]\n");
@@ -408,12 +409,33 @@ void SSHTerminal::handle_key_input(char key)
             append_text("\n");
             
             if (current_input.rfind("connect ", 0) == 0) {
-                size_t first_space = current_input.find(' ');
-                size_t second_space = current_input.find(' ', first_space + 1);
+                // Parse arguments with support for quoted strings (for SSIDs/passwords with spaces)
+                std::vector<std::string> args;
+                std::string arg;
+                bool in_quotes = false;
                 
-                if (second_space != std::string::npos) {
-                    std::string ssid = current_input.substr(first_space + 1, second_space - first_space - 1);
-                    std::string password = current_input.substr(second_space + 1);
+                // Skip "connect " prefix
+                for (size_t i = 8; i < current_input.length(); i++) {
+                    char c = current_input[i];
+                    
+                    if (c == '"') {
+                        in_quotes = !in_quotes;
+                    } else if (c == ' ' && !in_quotes) {
+                        if (!arg.empty()) {
+                            args.push_back(arg);
+                            arg.clear();
+                        }
+                    } else {
+                        arg += c;
+                    }
+                }
+                if (!arg.empty()) {
+                    args.push_back(arg);
+                }
+                
+                if (args.size() >= 2) {
+                    std::string ssid = args[0];
+                    std::string password = args[1];
                     
                     append_text("Connecting to WiFi: ");
                     append_text(ssid.c_str());
@@ -426,6 +448,7 @@ void SSHTerminal::handle_key_input(char key)
                     }
                 } else {
                     append_text("Usage: connect <SSID> <PASSWORD>\n");
+                    append_text("  Use quotes for SSIDs/passwords with spaces: connect \"My WiFi\" password\n");
                 }
             }
             else if (current_input.rfind("ssh ", 0) == 0) {
@@ -450,6 +473,48 @@ void SSHTerminal::handle_key_input(char key)
                     append_text("Usage: ssh <HOST> <PORT> <USER> <PASS>\n");
                 }
             }
+            else if (current_input.rfind("sshkey ", 0) == 0) {
+                std::vector<std::string> parts;
+                size_t pos = 0;
+                std::string temp = current_input;
+                
+                while ((pos = temp.find(' ')) != std::string::npos) {
+                    parts.push_back(temp.substr(0, pos));
+                    temp.erase(0, pos + 1);
+                }
+                parts.push_back(temp);
+                
+                if (parts.size() >= 5) {
+                    std::string host = parts[1];
+                    int port = std::atoi(parts[2].c_str());
+                    std::string user = parts[3];
+                    std::string keyfile = parts[4];
+                    
+                    // Try to load key from memory
+                    size_t key_len = 0;
+                    const char* key_data = get_loaded_key(keyfile.c_str(), &key_len);
+                    
+                    if (key_data && key_len > 0) {
+                        append_text("Using key file: ");
+                        append_text(keyfile.c_str());
+                        append_text("\n");
+                        connect_with_key(host.c_str(), port, user.c_str(), key_data, key_len);
+                    } else {
+                        append_text("ERROR: Key file not found: ");
+                        append_text(keyfile.c_str());
+                        append_text("\n");
+                        append_text("Available keys: ");
+                        for (const auto& kv : loaded_keys) {
+                            append_text(kv.first.c_str());
+                            append_text(" ");
+                        }
+                        append_text("\n");
+                    }
+                } else {
+                    append_text("Usage: sshkey <HOST> <PORT> <USER> <KEYFILE>\n");
+                    append_text("  Example: sshkey 192.168.1.100 22 pi default.pem\n");
+                }
+            }
             else if (current_input == "disconnect") {
                 if (wifi_connected) {
                     append_text("Disconnecting WiFi...\n");
@@ -471,7 +536,10 @@ void SSHTerminal::handle_key_input(char key)
             else if (current_input == "help") {
                 append_text("Available commands:\n");
                 append_text("  connect <SSID> <PASSWORD> - Connect to WiFi\n");
+                append_text("    Use quotes for spaces: connect \"My WiFi\" password\n");
                 append_text("  ssh <HOST> <PORT> <USER> <PASS> - Connect via SSH\n");
+                append_text("  sshkey <HOST> <PORT> <USER> <KEYFILE> - Connect via SSH with private key\n");
+                append_text("    Note: Place .pem keys in /sdcard/ssh_keys/ before use\n");
                 append_text("  disconnect - Disconnect WiFi\n");
                 append_text("  exit - Disconnect SSH\n");
                 append_text("  clear - Clear terminal\n");
@@ -1005,6 +1073,105 @@ esp_err_t SSHTerminal::connect(const char* host, int port, const char* username,
     return ESP_OK;
 }
 
+esp_err_t SSHTerminal::connect_with_key(const char* host, int port, const char* username, const char* privkey_data, size_t privkey_len)
+{
+    if (!wifi_connected) {
+        ESP_LOGE(TAG, "WiFi not connected");
+        append_text("ERROR: WiFi not connected\n");
+        return ESP_FAIL;
+    }
+
+    ESP_LOGI(TAG, "Connecting to %s:%d with public key", host, port);
+    append_text("Connecting to ");
+    append_text(host);
+    append_text(" with public key...\n");
+
+    int rc = libssh2_init(0);
+    if (rc != 0) {
+        ESP_LOGE(TAG, "libssh2 initialization failed (%d)", rc);
+        append_text("ERROR: libssh2 init failed\n");
+        return ESP_FAIL;
+    }
+
+    struct sockaddr_in sin;
+    ssh_socket = socket(AF_INET, SOCK_STREAM, 0);
+    if (ssh_socket < 0) {
+        ESP_LOGE(TAG, "Failed to create socket");
+        append_text("ERROR: Failed to create socket\n");
+        libssh2_exit();
+        return ESP_FAIL;
+    }
+
+    sin.sin_family = AF_INET;
+    sin.sin_port = htons(port);
+    sin.sin_addr.s_addr = inet_addr(host);
+
+    struct timeval timeout;
+    timeout.tv_sec = 10;
+    timeout.tv_usec = 0;
+    setsockopt(ssh_socket, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+    setsockopt(ssh_socket, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+
+    if (::connect(ssh_socket, (struct sockaddr*)(&sin), sizeof(struct sockaddr_in)) != 0) {
+        ESP_LOGE(TAG, "Failed to connect socket");
+        append_text("ERROR: Failed to connect socket\n");
+        close(ssh_socket);
+        ssh_socket = -1;
+        libssh2_exit();
+        return ESP_FAIL;
+    }
+
+    ESP_LOGI(TAG, "Socket connected");
+    append_text("Socket connected, initializing SSH session...\n");
+
+    session = libssh2_session_init();
+    if (!session) {
+        ESP_LOGE(TAG, "Failed to create SSH session");
+        append_text("ERROR: Failed to create SSH session\n");
+        close(ssh_socket);
+        ssh_socket = -1;
+        libssh2_exit();
+        return ESP_FAIL;
+    }
+
+    libssh2_session_set_blocking(session, 0);
+
+    append_text("Performing SSH handshake...\n");
+    while ((rc = libssh2_session_handshake(session, ssh_socket)) == LIBSSH2_ERROR_EAGAIN);
+    
+    if (rc) {
+        ESP_LOGE(TAG, "SSH handshake failed: %d", rc);
+        append_text("ERROR: SSH handshake failed\n");
+        disconnect();
+        return ESP_FAIL;
+    }
+
+    ESP_LOGI(TAG, "SSH handshake successful");
+    append_text("SSH handshake successful\n");
+
+    if (ssh_authenticate_pubkey(username, privkey_data, privkey_len) != ESP_OK) {
+        append_text("ERROR: Public key authentication failed\n");
+        disconnect();
+        return ESP_FAIL;
+    }
+
+    append_text("Public key authentication successful\n");
+
+    if (ssh_open_channel() != ESP_OK) {
+        append_text("ERROR: Failed to open channel\n");
+        disconnect();
+        return ESP_FAIL;
+    }
+
+    append_text("SSH channel opened - connected!\n");
+    ssh_connected = true;
+    update_status_bar();
+
+    xTaskCreate(ssh_receive_task, "ssh_rx", 8192, this, 5, NULL);
+
+    return ESP_OK;
+}
+
 esp_err_t SSHTerminal::ssh_authenticate(const char* username, const char* password)
 {
     append_text("Authenticating as ");
@@ -1023,6 +1190,32 @@ esp_err_t SSHTerminal::ssh_authenticate(const char* username, const char* passwo
     }
 
     ESP_LOGI(TAG, "Authentication successful");
+    return ESP_OK;
+}
+
+esp_err_t SSHTerminal::ssh_authenticate_pubkey(const char* username, const char* privkey_data, size_t privkey_len)
+{
+    append_text("Authenticating as ");
+    append_text(username);
+    append_text(" with public key...\n");
+
+    int rc;
+    // libssh2_userauth_publickey_frommemory expects the private key, public key (can be NULL), and passphrase
+    while ((rc = libssh2_userauth_publickey_frommemory(session, username, strlen(username),
+                                                         NULL, 0,  // public key (optional)
+                                                         privkey_data, privkey_len,
+                                                         NULL)) == LIBSSH2_ERROR_EAGAIN);  // no passphrase
+    
+    if (rc) {
+        char *err_msg;
+        int err_len;
+        libssh2_session_last_error(session, &err_msg, &err_len, 0);
+        ESP_LOGE(TAG, "Public key authentication failed: %s (error code: %d)", err_msg, rc);
+        append_text("ERROR: Public key authentication failed\n");
+        return ESP_FAIL;
+    }
+
+    ESP_LOGI(TAG, "Public key authentication successful");
     return ESP_OK;
 }
 
@@ -1480,4 +1673,55 @@ void SSHTerminal::special_key_event_cb(lv_event_t* e)
     if (key_seq) {
         terminal->send_special_key(key_seq);
     }
+}
+
+void SSHTerminal::load_key_from_memory(const char* keyname, const char* key_data, size_t key_len)
+{
+    if (!keyname || !key_data || key_len == 0) {
+        ESP_LOGE(TAG, "Invalid key parameters");
+        return;
+    }
+    
+    // Convert keyname to lowercase for case-insensitive lookup
+    std::string keyname_str(keyname);
+    std::transform(keyname_str.begin(), keyname_str.end(), keyname_str.begin(), ::tolower);
+    
+    std::string key_str(key_data, key_len);
+    
+    loaded_keys[keyname_str] = key_str;
+    
+    ESP_LOGI(TAG, "Loaded SSH key: %s (%d bytes)", keyname, key_len);
+}
+
+const char* SSHTerminal::get_loaded_key(const char* keyname, size_t* len)
+{
+    if (!keyname) {
+        return NULL;
+    }
+    
+    // Convert keyname to lowercase for case-insensitive lookup
+    std::string keyname_str(keyname);
+    std::transform(keyname_str.begin(), keyname_str.end(), keyname_str.begin(), ::tolower);
+    
+    auto it = loaded_keys.find(keyname_str);
+    
+    if (it != loaded_keys.end()) {
+        if (len) {
+            *len = it->second.length();
+        }
+        return it->second.c_str();
+    }
+    
+    return NULL;
+}
+
+std::vector<std::string> SSHTerminal::get_loaded_key_names()
+{
+    std::vector<std::string> key_names;
+    
+    for (const auto& pair : loaded_keys) {
+        key_names.push_back(pair.first);
+    }
+    
+    return key_names;
 }
