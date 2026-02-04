@@ -17,6 +17,12 @@
 ║                                                                      ║
 ╚══════════════════════════════════════════════════════════════════════╝
 ```
+<div align="center">
+  <img src="misc/pipboy.gif" alt="PocketSSH 1.2.0">
+  <p><em>PocketSSH 1.2.0</em></p>
+  <p><a href="https://youtu.be/iMoiEmd5Mq8">📺 Watch Demo Video</a></p>
+</div>
+
 
 # PocketSSH
 
@@ -138,9 +144,9 @@ Quick access to commonly used control sequences:
    
    **With Public Key**:
    ```
-   sshkey <HOST> <PORT> <USER> <PRIVATE_KEY>
+   sshkey <HOST> <PORT> <USER> <KEYFILE>
    ```
-   Example: `sshkey 192.168.1.100 22 pi <paste_key_here>`
+   Example: `sshkey 192.168.1.100 22 pi rpi_key.pem`
 
 3. **Use Interactive Shell**:
    Once connected, any command you type is sent to the remote server:
@@ -189,10 +195,6 @@ This creates two files:
 Copy the public key to your server's authorized_keys:
 
 ```bash
-# Automatic method (if ssh-copy-id is available)
-ssh-copy-id -i rpi_key.pub pi@raspberrypi.local
-
-# Manual method
 cat rpi_key.pub | ssh pi@raspberrypi.local 'mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys'
 ```
 
